@@ -1,0 +1,13 @@
+framework:
+    messenger:
+        buses:
+            command.bus:
+                default_middleware:
+                    allow_no_handlers: false
+
+        default_bus: command.bus
+
+        transports:
+            sync: 'sync://'
+
+        routing: []

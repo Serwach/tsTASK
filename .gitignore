@@ -1,0 +1,23 @@
+
+###> symfony/framework-bundle ###
+/.env.local
+/.env.local.php
+/.env.*.local
+/config/secrets/prod/prod.decrypt.private.php
+/public/bundles/
+/var/
+/vendor/
+###< symfony/framework-bundle ###
+
+###> phpunit/phpunit ###
+/phpunit.xml
+/.phpunit.cache/
+###< phpunit/phpunit ###
+
+###> custom ###
+# Contains a real APP_SECRET - keep env-specific secrets in .env.dev.local instead
+/.env.dev
+# OS / IDE cruft
+.DS_Store
+/.idea/
+###< custom ###
