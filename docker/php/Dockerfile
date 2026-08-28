@@ -26,18 +26,32 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # PHP / Xdebug configuration
 COPY docker/php/conf.d/ /usr/local/etc/php/conf.d/
 
-# Run as a user whose id matches the host so bind-mounted files stay writable.
-# php-fpm master then runs unprivileged and workers inherit this uid.
+# Run php-fpm as a non-root user whose uid/gid match the host, so files created
+# in the bind mount (vendor/, var/) stay writable from both sides.
+# The gid or uid may already exist in the base image (e.g. on macOS the host gid
+# is 20, which is "dialout" in Alpine) - in that case reuse it instead of failing.
 ARG UID=1000
 ARG GID=1000
-RUN addgroup -g "${GID}" app && adduser -u "${UID}" -G app -s /bin/bash -D app
+RUN set -eux; \
+    if awk -F: -v g="${GID}" '$3==g{f=1} END{exit !f}' /etc/group; then \
+        appgroup="$(awk -F: -v g="${GID}" '$3==g{print $1; exit}' /etc/group)"; \
+    else \
+        addgroup -g "${GID}" app; appgroup=app; \
+    fi; \
+    if ! awk -F: -v u="${UID}" '$3==u{f=1} END{exit !f}' /etc/passwd; then \
+        adduser -u "${UID}" -G "$appgroup" -s /bin/bash -D -h /home/app app; \
+    fi; \
+    mkdir -p /home/app; chown "${UID}:${GID}" /home/app
+
+ENV HOME=/home/app \
+    COMPOSER_HOME=/home/app/.composer
 
 WORKDIR /app
 
 COPY docker/php/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 
-USER app
+USER ${UID}:${GID}
 
 ENTRYPOINT ["entrypoint"]
 CMD ["php-fpm", "-F"]
