@@ -7,6 +7,8 @@ namespace App\MessageHandler;
 use App\Entity\SalesDocument;
 use App\Enum\SalesDocumentStatus;
 use App\Enum\SalesDocumentType;
+use App\Exception\SalesDocumentNotFound;
+use App\Exception\SalesDocumentTransitionNotAllowed;
 use App\Message\Command\ApproveSalesDocument;
 use App\Notification\ApprovalNotifier;
 use App\Repository\SalesDocumentRepository;
@@ -28,10 +30,10 @@ final class ApproveSalesDocumentHandler
         $approvedId = $this->entityManager->wrapInTransaction(function () use ($command) {
             $document = $this->repository->find($command->documentId);
             if ($document === null) {
-                throw new \RuntimeException("Document {$command->documentId} not found");
+                throw SalesDocumentNotFound::withId($command->documentId);
             }
             if ($document->getStatus() !== SalesDocumentStatus::Draft) {
-                throw new \RuntimeException('Document cannot be approved in its current status');
+                throw SalesDocumentTransitionNotAllowed::cannotApprove($document->getStatus());
             }
 
             $document->setStatus(SalesDocumentStatus::Approved);
