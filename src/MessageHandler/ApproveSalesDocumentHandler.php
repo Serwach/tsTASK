@@ -8,7 +8,7 @@ use App\Entity\SalesDocument;
 use App\Enum\SalesDocumentStatus;
 use App\Enum\SalesDocumentType;
 use App\Message\Command\ApproveSalesDocument;
-use App\Notification\NotifierPort;
+use App\Notification\ApprovalNotifier;
 use App\Repository\SalesDocumentRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
@@ -19,7 +19,7 @@ final class ApproveSalesDocumentHandler
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly SalesDocumentRepository $repository,
-        private readonly NotifierPort $notifier,
+        private readonly ApprovalNotifier $approvalNotifier,
     ) {
     }
 
@@ -59,16 +59,11 @@ final class ApproveSalesDocumentHandler
             return $approvedId;
         });
 
+        // The approval is committed and durable from here on. Notifying the
+        // parties is a best-effort side effect: its failure must not propagate
+        // out of the handler and be reported to the caller as a failed approval.
         $approvedDocument = $this->repository->find($approvedId);
-
-        $this->notifier->notify(
-            $approvedDocument->getCreatedBy(),
-            "Document #{$approvedDocument->getId()} has been approved",
-        );
-        $this->notifier->notify(
-            $approvedDocument->getContractorId(),
-            "Document #{$approvedDocument->getId()} has been approved",
-        );
+        $this->approvalNotifier->documentApproved($approvedDocument);
 
         return $approvedId;
     }
