@@ -36,6 +36,12 @@ class SalesDocument
     private ?\DateTimeImmutable $approvedAt = null;
 
     #[ORM\Column(nullable: true)]
+    private ?int $rejectedBy = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $rejectedAt = null;
+
+    #[ORM\Column(nullable: true)]
     private ?int $parentQuoteId = null;
 
     #[ORM\Column(type: 'json', nullable: true)]
@@ -104,6 +110,26 @@ class SalesDocument
     public function setApprovedAt(?\DateTimeImmutable $approvedAt): void
     {
         $this->approvedAt = $approvedAt;
+    }
+
+    public function getRejectedBy(): ?int
+    {
+        return $this->rejectedBy;
+    }
+
+    public function setRejectedBy(?int $rejectedBy): void
+    {
+        $this->rejectedBy = $rejectedBy;
+    }
+
+    public function getRejectedAt(): ?\DateTimeImmutable
+    {
+        return $this->rejectedAt;
+    }
+
+    public function setRejectedAt(?\DateTimeImmutable $rejectedAt): void
+    {
+        $this->rejectedAt = $rejectedAt;
     }
 
     public function getParentQuoteId(): ?int

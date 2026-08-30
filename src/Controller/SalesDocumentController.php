@@ -8,6 +8,7 @@ use App\Exception\SalesDocumentNotFound;
 use App\Exception\SalesDocumentTransitionNotAllowed;
 use App\Message\Command\ApproveSalesDocument;
 use App\Message\Command\CreateSalesDocument;
+use App\Message\Command\RejectSalesDocument;
 use App\Repository\SalesDocumentRepository;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -63,6 +64,27 @@ final class SalesDocumentController
             'type' => $document->getType()->value,
             'status' => $document->getStatus()->value,
             'parent_quote_id' => $document->getParentQuoteId(),
+        ]);
+    }
+
+    #[Route('/sales-documents/{id}/reject', name: 'sales_document_reject', methods: ['POST'])]
+    public function reject(int $id, Request $request): JsonResponse
+    {
+        $payload = json_decode($request->getContent(), true) ?? [];
+        $rejectedBy = (int) ($payload['rejected_by'] ?? 0);
+
+        try {
+            $this->commandBus->dispatch(new RejectSalesDocument($id, $rejectedBy));
+        } catch (HandlerFailedException $e) {
+            return $this->mapDomainFailure($e);
+        }
+
+        $document = $this->repository->find($id);
+
+        return new JsonResponse([
+            'id' => $document->getId(),
+            'type' => $document->getType()->value,
+            'status' => $document->getStatus()->value,
         ]);
     }
 
