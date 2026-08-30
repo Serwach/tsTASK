@@ -60,11 +60,13 @@ final class ApproveSalesDocumentHandler
 
             return $approvedId;
         });
+        \assert(\is_int($approvedId));
 
         // The approval is committed and durable from here on. Notifying the
         // parties is a best-effort side effect: its failure must not propagate
         // out of the handler and be reported to the caller as a failed approval.
         $approvedDocument = $this->repository->find($approvedId);
+        \assert($approvedDocument instanceof SalesDocument);
         $this->approvalNotifier->documentApproved($approvedDocument);
 
         return $approvedId;

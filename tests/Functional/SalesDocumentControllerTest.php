@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Functional;
 
 use App\Entity\SalesDocument;
+use App\Enum\SalesDocumentStatus;
 use App\Repository\SalesDocumentRepository;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
@@ -79,5 +80,64 @@ final class SalesDocumentControllerTest extends WebTestCase
 
         self::assertSame(111, $document->getContractorId(), 'contractor_id from the payload must be stored as the contractor');
         self::assertSame(222, $document->getCreatedBy(), 'created_by from the payload must be stored as the creator');
+    }
+
+    public function testApprovingWithoutApprovedByReturns400(): void
+    {
+        $this->client->request('POST', '/sales-documents', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'contractor_id' => 77,
+            'created_by' => 5,
+        ]));
+        $quoteId = json_decode($this->client->getResponse()->getContent(), true)['id'];
+
+        $this->client->request('POST', "/sales-documents/{$quoteId}/approve", server: ['CONTENT_TYPE' => 'application/json'], content: json_encode([]));
+
+        self::assertResponseStatusCodeSame(400);
+    }
+
+    public function testRejectingADraftThroughHttp(): void
+    {
+        $this->client->request('POST', '/sales-documents', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'contractor_id' => 77,
+            'created_by' => 5,
+        ]));
+        $quoteId = json_decode($this->client->getResponse()->getContent(), true)['id'];
+
+        $this->client->request('POST', "/sales-documents/{$quoteId}/reject", server: ['CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'rejected_by' => 9,
+        ]));
+        self::assertResponseIsSuccessful();
+        self::assertSame('rejected', json_decode($this->client->getResponse()->getContent(), true)['status']);
+
+        /** @var SalesDocumentRepository $repository */
+        $repository = self::getContainer()->get(SalesDocumentRepository::class);
+        $document = $repository->find($quoteId);
+        self::assertSame(SalesDocumentStatus::Rejected, $document->getStatus());
+        self::assertSame(9, $document->getRejectedBy());
+        self::assertNotNull($document->getRejectedAt());
+    }
+
+    public function testRejectingAMissingDocumentReturns404(): void
+    {
+        $this->client->request('POST', '/sales-documents/999999/reject', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'rejected_by' => 9,
+        ]));
+
+        self::assertResponseStatusCodeSame(404);
+    }
+
+    public function testRejectingAnApprovedDocumentThroughHttpReturns409(): void
+    {
+        $this->client->request('POST', '/sales-documents', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'contractor_id' => 77,
+            'created_by' => 5,
+        ]));
+        $quoteId = json_decode($this->client->getResponse()->getContent(), true)['id'];
+
+        $this->client->request('POST', "/sales-documents/{$quoteId}/approve", server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(['approved_by' => 9]));
+        self::assertResponseIsSuccessful();
+
+        $this->client->request('POST', "/sales-documents/{$quoteId}/reject", server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(['rejected_by' => 9]));
+        self::assertResponseStatusCodeSame(409);
     }
 }

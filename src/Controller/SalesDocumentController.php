@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\SalesDocument;
 use App\Exception\SalesDocumentNotFound;
 use App\Exception\SalesDocumentTransitionNotAllowed;
 use App\Message\Command\ApproveSalesDocument;
@@ -30,13 +31,15 @@ final class SalesDocumentController
     {
         $payload = json_decode($request->getContent(), true);
 
-        if (empty($payload['contractor_id']) || empty($payload['created_by'])) {
-            return new JsonResponse(['error' => 'Missing fields'], 400);
+        $contractorId = self::readId($payload, 'contractor_id');
+        $createdBy = self::readId($payload, 'created_by');
+        if ($contractorId === null || $createdBy === null) {
+            return new JsonResponse(['error' => 'contractor_id and created_by must be positive integers'], 400);
         }
 
         $envelope = $this->commandBus->dispatch(new CreateSalesDocument(
-            contractorId: (int) $payload['contractor_id'],
-            createdBy: (int) $payload['created_by'],
+            contractorId: $contractorId,
+            createdBy: $createdBy,
         ));
 
         $id = $envelope->last(HandledStamp::class)->getResult();
@@ -47,8 +50,10 @@ final class SalesDocumentController
     #[Route('/sales-documents/{id}/approve', name: 'sales_document_approve', methods: ['POST'])]
     public function approve(int $id, Request $request): JsonResponse
     {
-        $payload = json_decode($request->getContent(), true) ?? [];
-        $approvedBy = (int) ($payload['approved_by'] ?? 0);
+        $approvedBy = self::readId(json_decode($request->getContent(), true), 'approved_by');
+        if ($approvedBy === null) {
+            return new JsonResponse(['error' => 'approved_by must be a positive integer'], 400);
+        }
 
         try {
             $envelope = $this->commandBus->dispatch(new ApproveSalesDocument($id, $approvedBy));
@@ -58,6 +63,7 @@ final class SalesDocumentController
         }
 
         $document = $this->repository->find($resultId);
+        \assert($document instanceof SalesDocument);
 
         return new JsonResponse([
             'id' => $document->getId(),
@@ -70,8 +76,10 @@ final class SalesDocumentController
     #[Route('/sales-documents/{id}/reject', name: 'sales_document_reject', methods: ['POST'])]
     public function reject(int $id, Request $request): JsonResponse
     {
-        $payload = json_decode($request->getContent(), true) ?? [];
-        $rejectedBy = (int) ($payload['rejected_by'] ?? 0);
+        $rejectedBy = self::readId(json_decode($request->getContent(), true), 'rejected_by');
+        if ($rejectedBy === null) {
+            return new JsonResponse(['error' => 'rejected_by must be a positive integer'], 400);
+        }
 
         try {
             $this->commandBus->dispatch(new RejectSalesDocument($id, $rejectedBy));
@@ -80,12 +88,33 @@ final class SalesDocumentController
         }
 
         $document = $this->repository->find($id);
+        \assert($document instanceof SalesDocument);
 
         return new JsonResponse([
             'id' => $document->getId(),
             'type' => $document->getType()->value,
             'status' => $document->getStatus()->value,
         ]);
+    }
+
+    /**
+     * A required actor/reference id from the JSON body: it must be present and a
+     * positive integer. Returns null on anything malformed (missing, non-numeric,
+     * float, "0", nested structure) so the caller answers 400 instead of
+     * silently coercing garbage to 0.
+     */
+    private static function readId(mixed $payload, string $key): ?int
+    {
+        $value = \is_array($payload) ? ($payload[$key] ?? null) : null;
+
+        if (\is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+        if (\is_string($value) && ctype_digit($value) && $value !== '0') {
+            return (int) $value;
+        }
+
+        return null;
     }
 
     /**
