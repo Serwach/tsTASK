@@ -33,27 +33,14 @@ final class SalesDocumentController
             return new JsonResponse(['error' => 'Missing fields'], 400);
         }
 
-        $ids = $this->resolveDocumentOwnership($payload);
-
         $envelope = $this->commandBus->dispatch(new CreateSalesDocument(
-            contractorId: $ids['contractorId'],
-            createdBy: $ids['createdBy'],
+            contractorId: (int) $payload['contractor_id'],
+            createdBy: (int) $payload['created_by'],
         ));
 
         $id = $envelope->last(HandledStamp::class)->getResult();
 
         return new JsonResponse(['id' => $id], 201);
-    }
-
-    /**
-     * @return array{contractorId: int, createdBy: int}
-     */
-    private function resolveDocumentOwnership(array $payload): array
-    {
-        return [
-            'contractorId' => (int) $payload['created_by'],
-            'createdBy' => (int) $payload['contractor_id'],
-        ];
     }
 
     #[Route('/sales-documents/{id}/approve', name: 'sales_document_approve', methods: ['POST'])]
