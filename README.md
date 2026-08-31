@@ -50,13 +50,29 @@ zły stan, realna awaria). Czytał też dokument ręcznym `SELECT`-em zamiast pr
 
 - wyjątki domenowe `App\Exception\SalesDocumentNotFound` (→ 404) i
   `SalesDocumentTransitionNotAllowed` (→ 409); handler rzuca je zamiast gołego `\RuntimeException`;
-- kontroler łapie `HandlerFailedException`, rozpakowuje przyczynę i mapuje przez `match`;
-  **nierozpoznany błąd jest re-rzucany** → framework robi 500 bez wycieku treści;
 - ręczny SQL → `SalesDocumentRepository::find()` + serializacja encji;
 - walidacja wejścia: brak / niepoprawny `approved_by` (oraz `contractor_id` / `created_by`) →
-  **400**, zamiast po cichu zapisywać `0`.
+  **400**, zamiast po cichu zapisywać `0`;
+- **nierozpoznany błąd nie jest re-rzucany** — kontroler łapie go jawnie (`catch (\Throwable)`
+  jako siatka bezpieczeństwa obok `catch (HandlerFailedException)`), loguje z kontekstem
+  (`operation`, `documentId`, `exception`) i odpowiada generycznym `{"error": "Internal server
+  error"}` (500). Wcześniejsza wersja tego re-rzucała, licząc na domyślne zachowanie frameworka —
+  ale `APP_ENV=dev` w tym projekcie oznacza `APP_DEBUG=1`, więc realnie wyciekała pełna strona
+  debugowa Symfony ze stack trace'em (zweryfikowane curlem: `POST
+  /sales-documents/99999999999999999999999/approve`). Pokryte testem
+  `testAnUnexpectedFailureFromTheCommandBusReturnsASafeGenericErrorAndIsLogged` (mockuje
+  `MessageBusInterface::dispatch()` rzucający wyjątek, asertuje treść odpowiedzi i wywołanie loggera);
+- ten sam segment URL-a (`{id}`) ujawnił drugi wariant tego problemu: `int $id` w sygnaturze
+  metody powodował `TypeError` (i tę samą wyciekającą stronę debugową) dla ID, które nie mieści
+  się w PHP `int` — ten błąd powstaje w resolverze argumentów Symfony, **zanim** kod kontrolera
+  w ogóle się wykona, więc żaden `try/catch` wewnątrz metody go nie złapie. Naprawione zmianą
+  sygnatury na `string $id` i jawnym parsowaniem przez `readId()` (który teraz używa
+  `FILTER_VALIDATE_INT`, więc odrzuca też przepełnienie) — błędny/zbyt duży `id` traktowany jest
+  jako "dokument nie istnieje" → 404. Pokryte testem
+  `testApprovingWithAnOverflowingIdReturns404InsteadOfLeakingAStackTrace`.
 
-Test `…CurrentlyReturns500` → `…Returns404`; dodane testy 409 i 400.
+Test `…CurrentlyReturns500` → `…Returns404`; dodane testy 409, 400, oraz oba testy bezpieczeństwa
+opisane wyżej.
 
 ## Problem 3 — zamienione `contractor_id` i `created_by`
 
@@ -115,14 +131,16 @@ Zakres zadania to cztery konkretne bugfixy w małym serwisie CQRS — poniższe 
 ## Testy
 
 ```
-OK (14 tests, 33 assertions)
+OK (17 tests, 47 assertions)
 ```
 
 Dostarczone testy (`ApproveSalesDocumentTest`, `RejectSalesDocumentHandlerTest`) — bez zmian.
 Happy-path `testCreateAndApproveThroughHttp` i `testApprovingAQuoteSpawnsALinkedOrder…` —
 zielone, asercje nietknięte. `testApprovingMissingDocument…` zaktualizowany do 404 zgodnie z
 `TASK.MD`. Dodane: 409 (approve i reject), 400 (walidacja), round-trip `/reject` z asercją pól
-audytu, regresja zamiany właścicieli, jednostkowy `ApprovalNotifierTest`.
+audytu, regresja zamiany właścicieli, jednostkowy `ApprovalNotifierTest`, oraz dwa testy
+bezpieczeństwa błędów opisane w sekcji „Problem 2" (generic 500 przy nieoczekiwanym wyjątku z
+`command.bus` + logowanie, 404 dla ID przepełniającego `int`).
 
 Linia `[error] Approval notification failed` na stderr podczas testów to celowo wywołana
 awaria kanału w teście flaky — nie błąd (`OK`).
