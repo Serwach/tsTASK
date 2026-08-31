@@ -41,6 +41,21 @@ wysyła powiadomienia po commicie, każde w osobnym `try/catch` z logowaniem. Aw
 kontenerowana; awaria powiadomienia do jednej strony nie blokuje drugiej.
 `testApprovalDoesNotFailTheCallerWhenTheNotificationChannelFails` — zielony, asercje nietknięte.
 
+**Powiązany bug znaleziony przy okazji (nie jeden z czterech wymienionych w `TASK.MD`, ale
+realny):** powiadomienia były wysyłane na podstawie dokumentu znalezionego pod `$approvedId`.
+Dla zatwierdzanej oferty (`Quote`) `$approvedId` to id nowo powstałego zamówienia (`Order`), a
+`Order::createdBy` jest ustawiane na `approved_by` (zatwierdzającego) — więc powiadamiany był
+**zatwierdzający** zamiast twórcy oferty; sam twórca oferty nigdy nie dostawał powiadomienia.
+Zweryfikowane live (`curl` + log): oferta `created_by=50, contractor_id=770`, zatwierdzona przez
+`approved_by=999` → powiadamiani byli `999` i `770`, nigdy `50`. Ten wzorzec był już w
+niezmodyfikowanym szkielecie zadania (`git show <initial>:...`), refaktor pod problem 1 tylko go
+przeniósł 1:1 do `ApprovalNotifier`, nie naprawiając. Naprawa: `ApproveSalesDocumentHandler` po
+zatwierdzeniu odczytuje strony do powiadomienia po `$command->documentId` (oryginalny dokument),
+nie po `$approvedId` — `createdBy`/`contractorId` oryginalnego dokumentu nigdy się nie zmieniają,
+więc to jest poprawne niezależnie od tego, czy zatwierdzana jest oferta, czy (potencjalnie w
+przyszłości) inny typ dokumentu. Test regresyjny:
+`testApprovingAQuoteNotifiesTheQuotesOwnPartiesNotTheApprover`.
+
 ## Problem 2 — kontroler mapuje każdy błąd na 500 i omija repozytorium
 
 `approve()` robił `catch (\Throwable)` → 500 + surowa treść wyjątku dla wszystkiego (złe ID,
@@ -131,16 +146,17 @@ Zakres zadania to cztery konkretne bugfixy w małym serwisie CQRS — poniższe 
 ## Testy
 
 ```
-OK (17 tests, 47 assertions)
+OK (18 tests, 50 assertions)
 ```
 
 Dostarczone testy (`ApproveSalesDocumentTest`, `RejectSalesDocumentHandlerTest`) — bez zmian.
 Happy-path `testCreateAndApproveThroughHttp` i `testApprovingAQuoteSpawnsALinkedOrder…` —
 zielone, asercje nietknięte. `testApprovingMissingDocument…` zaktualizowany do 404 zgodnie z
 `TASK.MD`. Dodane: 409 (approve i reject), 400 (walidacja), round-trip `/reject` z asercją pól
-audytu, regresja zamiany właścicieli, jednostkowy `ApprovalNotifierTest`, oraz dwa testy
+audytu, regresja zamiany właścicieli, jednostkowy `ApprovalNotifierTest`, dwa testy
 bezpieczeństwa błędów opisane w sekcji „Problem 2" (generic 500 przy nieoczekiwanym wyjątku z
-`command.bus` + logowanie, 404 dla ID przepełniającego `int`).
+`command.bus` + logowanie, 404 dla ID przepełniającego `int`), oraz regresja opisana w sekcji
+„Problem 1" (`testApprovingAQuoteNotifiesTheQuotesOwnPartiesNotTheApprover`).
 
 Linia `[error] Approval notification failed` na stderr podczas testów to celowo wywołana
 awaria kanału w teście flaky — nie błąd (`OK`).

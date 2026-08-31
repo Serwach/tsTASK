@@ -65,9 +65,15 @@ final class ApproveSalesDocumentHandler
         // The approval is committed and durable from here on. Notifying the
         // parties is a best-effort side effect: its failure must not propagate
         // out of the handler and be reported to the caller as a failed approval.
-        $approvedDocument = $this->repository->find($approvedId);
-        \assert($approvedDocument instanceof SalesDocument);
-        $this->approvalNotifier->documentApproved($approvedDocument);
+        //
+        // Notify using the *original* document ($command->documentId), not
+        // $approvedId: when a quote is approved, $approvedId is the spawned
+        // order, whose createdBy is set to the approver (see above) - looking
+        // recipients up on the order would notify the approver about their own
+        // action instead of the quote's actual creator and contractor.
+        $originalDocument = $this->repository->find($command->documentId);
+        \assert($originalDocument instanceof SalesDocument);
+        $this->approvalNotifier->documentApproved($originalDocument);
 
         return $approvedId;
     }
